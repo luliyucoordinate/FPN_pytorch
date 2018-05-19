@@ -1,8 +1,7 @@
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
-from torch.autograd import Variable
 
 __all__=['FPN']
 
@@ -15,15 +14,16 @@ class Bottleneck(nn.Module):
         self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion*planes, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(self.expansion*planes)
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(self.expansion * planes)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
-        self.shortcut = nn.Sequential()
+        self.stride = stride
         
 
     def forward(self, x):
         residual = x
+        
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
@@ -37,6 +37,7 @@ class Bottleneck(nn.Module):
 
         if self.downsample is not None:
             residual = self.downsample(x)
+        
         out += residual
         out = self.relu(out)
         
@@ -50,7 +51,7 @@ class FPN(nn.Module):
 
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
-        #?
+
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         # Bottom-up layers
@@ -71,13 +72,21 @@ class FPN(nn.Module):
         self.latlayer1 = nn.Conv2d(1024, 256, kernel_size=1, stride=1, padding=0)
         self.latlayer2 = nn.Conv2d( 512, 256, kernel_size=1, stride=1, padding=0)
         self.latlayer3 = nn.Conv2d( 256, 256, kernel_size=1, stride=1, padding=0)
+        
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample  = None
-        if stride != 1 or self.inplanes != block.expansion*planes:
+        if stride != 1 or self.inplanes != block.expansion * planes:
             downsample  = nn.Sequential(
-                nn.Conv2d(self.inplanes, block.expansion*planes, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(block.expansion*planes)
+                nn.Conv2d(self.inplanes, block.expansion * planes, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(block.expansion * planes)
             )
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
@@ -115,15 +124,5 @@ class FPN(nn.Module):
         return p2, p3, p4, p5
 
 
-def FPN101():
-    # return FPN(Bottleneck, [2,4,23,3])
+def FPN100():
     return FPN(Bottleneck, [2,2,2,2])
-
-
-def test():
-    net = FPN101()
-    fms = net(Variable(torch.randn(1,3,600,900)))
-    for fm in fms:
-        print(fm.size())
-
-test()
